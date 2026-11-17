@@ -1,0 +1,9 @@
+{
+  "_说明": "复制成 tuya_cloud.json 再填。这三个值都在涂鸦开发者平台 → 云开发 → 你的云应用 / 设备管理里。",
+  "_region": "cn=中国, us=美西, eu=中欧, ueaz=西欧, in=印度, sg=新加坡。填错了会报 1004 签名错误，别怀疑代码。",
+
+  "client_id": "填云应用的 Access ID",
+  "secret": "填云应用的 Access Secret",
+  "device_id": "填状态灯开发板的设备 ID",
+  "region": "cn"
+}

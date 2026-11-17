@@ -1,0 +1,208 @@
+{
+  "_说明": "把本文件复制成 status_light.json，改下面这两段就能接上你自己的工单系统。程序只读 source 和 announce，带下划线的字段都是给人看的说明。",
+  "_第一步": "cp status_light.example.json status_light.json",
+  "_第二步": "python3 bridge.py --check --dump   # 只拉数据、不连云，先确认字段对得上",
+
+  "source": {
+    "_注释": "★ 这是默认示例：最典型的「调一个内部接口、返回一堆工单」的情况。照着改成你的地址和字段名。",
+
+    "transport": "http",
+
+    "url": "https://ticket.example.com/api/tickets?status=open&assignee=me",
+    "_url说明": "把 assignee=me 换成你们的写法，这样屏幕上只算你自己的工单。",
+
+    "method": "GET",
+    "headers": {
+      "Authorization": "Bearer ${TICKET_TOKEN}"
+    },
+    "_headers说明": "用 ${TICKET_TOKEN} 从环境变量读，别把 token 写死在这个文件里。启动前 export TICKET_TOKEN=xxx。",
+
+    "timeout": 8,
+
+    "shape": "list",
+    "_shape说明": "list = 接口返回工单数组，本地按优先级数（需要 priority_map）；counts = 接口直接返回各优先级的数量；rules = 接口返回工单数组，但按你自己写的规则判定（需要 rules）。如果你发现自己压根不想用优先级来判断，直接跳到下面「例0」看 rules 怎么写。",
+
+    "list_path": "data.items",
+    "_list_path说明": "工单数组在你返回 JSON 里的路径。如果接口直接返回数组，这行留空字符串。嵌套的用点连接，比如 data.list。数组下标也能写，比如 data.0.items。",
+
+    "priority_field": "priority",
+    "_priority_field说明": "一条工单里哪个字段表示优先级。嵌套的写 fields.priority.name（Jira 就是这样）。",
+
+    "priority_map": {
+      "p0": ["P0", "紧急", "blocker", "highest", "critical"],
+      "p1": ["P1", "高", "high", "major"],
+      "p2": ["P2", "中", "medium", "normal"]
+    },
+    "_priority_map说明": "把你们的优先级写法翻译成 p0/p1/p2。忽略大小写和空格，所以 P0 / p0 /  P0  都能匹配。不在表里的值会被忽略，并在 --check 里列出来提醒你。",
+
+    "status_field": "status",
+    "_status_field说明": "哪个字段表示工单状态。不需要过滤状态就删掉这一行。",
+
+    "exclude_status": ["done", "closed", "resolved", "已解决", "已完成", "已关闭"],
+    "_exclude_status说明": "这些状态的工单不算数。不配就全都算。",
+
+    "resolved_field": "resolved_at",
+    "_resolved_field说明": "可选。填了就在界面上显示「今天解决几个」。值需要是以 2026-09-16 开头的时间字符串。"
+  },
+
+  "announce": {
+    "_注释": "★ 板子说什么话全在这里。改这几个字就行，不用重烧固件、不用改代码。",
+    "_可用变量": "{p0} {p1} {p2} {total} {resolved_today} 会被替换成实际数字。",
+
+    "urgent": "注意，有 {p0} 个 P0 工单，请立刻处理",
+    "celebrate": "干得漂亮，今天的工单清零了",
+    "warn": "",
+    "_warn说明": "故意留空 —— P1/P2 来了只变色不发声。一天响几十次的话，同事第三天就把板子关了。",
+
+    "source_lost": "工单系统连不上了，请检查",
+    "_source_lost说明": "连续 3 次取不到工单数据时会说这句，同时状态切成 offline。Cookie 过期是最常见的原因 —— 板子必须能自己喊出来，而不是安静地绿着。"
+  },
+
+  "poll_interval": 30,
+
+  "alert_buckets": ["p0", "p1", "p2"],
+  "_alert_buckets说明": "哪些桶参与「灯该是什么颜色」的判断。默认三个都参与。★ 但如果你某个桶天生不会归零（比如涂鸦 CS 队列里有 270 多条在等客户补充材料的工单），一定要把它排除掉 —— 否则灯永远亮着，「全部处理完 -> 庆祝」一辈子触发不了，这块板子就成了办公室里的噪音源。",
+
+  "─────────────────────────────────────────────────────────────": "",
+  "_其他接法示例": {
+    "_说明": "下面几段是备选方案。用哪种就把哪段的内容搬进上面的 source，替换掉默认那段。",
+
+    "例0_涂鸦CS工单系统": {
+      "_说明": "★ 这是已经对着真实系统跑通的那份（cs.tuya-inc.com 技术工单「待我处理」）。用 transport=tuyacs + shape=rules：因为实测那个队列里 275 条工单有 211 条优先级是空的、SS/S1/S2 一条都没有 —— 按优先级做判断的灯永远不会亮。真正有价值的信号是「状态 + 客户有没有回复」。完整说明见 接工单系统-操作步骤.md。",
+
+      "transport": "tuyacs",
+      "url": "https://cs.tuya-inc.com:7799",
+      "cookie": "${CS_COOKIE}",
+      "_cookie说明": "能读你全部工单的东西，别写死在文件里。用 ./set_cookie.sh 存到 ~/.cs_cookie。",
+
+      "view_code": "techTicketCSMyPending",
+      "_view_code说明": "视图编号。技术工单的其它视图：techTicketCSMyFollower（我关注的）/ techTicketCSMyProcessed（我处理的）/ techTicketCSMyCreated（我提的）/ techTicketCSAll（全部）。",
+
+      "platform": 8,
+      "page_size": 500,
+      "_page_size说明": "实测 500 一次能拿回全部 275 条（666KB / 1.5 秒）。调小会漏数。",
+
+      "budget": 6,
+      "timeout": 30,
+      "retries": 4,
+      "_超时三个数说明": [
+        "这三个是**一起**起作用的，只看一个会踩坑。",
+        "budget  = 整次取数的总预算（秒）。到了就认输，不管重试还剩几次。",
+        "timeout = 单次尝试的上限（秒），实际会被剩余预算压小。",
+        "retries = 最多试几次，预算见底时提前放弃。",
+        "",
+        "★ budget 必须明显小于板子拉 /tickets 的 socket 超时（固件里 SL_HTTP_TIMEOUT_MS = 8 秒）。",
+        "否则板子会先掐断连接、把这一轮判成取数失败显示灰屏，而 bridge 还在慢悠悠地问上游，",
+        "最后往一个已关闭的 socket 写响应头 —— 日志里就是一堆 Broken pipe。",
+        "实测：上游平时 1~3 秒，偶尔飙到 30 秒以上；timeout×retries 的最坏情况是 120 秒。",
+        "要放宽就两边一起改，留 2 秒余量；只改这边等于没改。"
+      ],
+      "_retries说明": "这台机器会偶发直接掐断 TLS 连接（SSLEOFError），重试就好，不是配置错误。",
+
+      "tls_verify": true,
+      "_tls_verify说明": "证书是有效的，保持 true。内网自签证书才需要改成 false。",
+
+      "shape": "rules",
+      "list_path": "result.datas",
+      "_list_path说明": "★ 字段是 {label, value} 结构（label 是中文名，value 是代号），所以规则里写字段路径要用 .value。",
+
+      "count_field": "result.total_count",
+
+      "rules": {
+        "p0": [
+          [{ "field": "state.value", "in": ["Pending"] }]
+        ],
+        "p1": [
+          [{ "field": "state.value", "in": ["Processing"] }]
+        ]
+      },
+      "_rules说明": "外层数组是 OR，内层数组是 AND。可用的算子：in / not_in / eq / ne / contains / truthy / age_hours_lt / age_hours_gte。state 的取值：Pending(待处理) / Processing(处理中) / PendingUserFeedback(待客户补充) / PendingUserConfirm(待客户确认) / WaitingForDistribute(待分配) / Cancelled / Closed。",
+
+      "else_bucket": "p2",
+      "_else_bucket说明": "没命中任何规则的工单算哪个桶。省略的话它们会被计入 unmatched（诊断里能看到条数和样例票号）。"
+    },
+
+    "例0b_按优先级筛_可选": {
+      "_说明": "如果哪天你想让「客户回复了但还没处理」也闪红，把这条追加进上面 rules.p0 数组。★ 注意它是「粘」的：last_requester_reply_at 只记客户最后一次回话时间，你回复之后不会变，所以窗口期内灯会一直亮着。建议窗口 12~24 小时。",
+      "rule": [
+        { "field": "state.value", "in": ["PendingUserFeedback", "PendingUserConfirm"] },
+        { "field": "last_requester_reply_at.value", "age_hours_lt": 24 }
+      ]
+    },
+
+    "例1_接口直接返回数量": {
+      "transport": "http",
+      "url": "https://ticket.example.com/api/stat",
+      "headers": { "Authorization": "Bearer ${TICKET_TOKEN}" },
+      "shape": "counts",
+      "counts": {
+        "p0": "data.priority.p0",
+        "p1": "data.priority.p1",
+        "p2": "data.priority.p2",
+        "resolved_today": "data.resolvedToday"
+      }
+    },
+
+    "例2_Jira": {
+      "_说明": "Jira 的优先级是 issues[].fields.priority.name，用 list 模式配。headers 里用 Basic 认证或 Bearer Token。",
+      "transport": "http",
+      "url": "https://your-jira.internal/rest/api/2/search?jql=assignee%3DcurrentUser()%20AND%20statusCategory%20!%3D%20Done%20ORDER%20BY%20priority%20DESC&fields=priority,status&maxResults=200",
+      "method": "GET",
+      "headers": {
+        "Authorization": "Basic ${JIRA_BASIC}",
+        "Accept": "application/json"
+      },
+      "shape": "list",
+      "list_path": "issues",
+      "priority_field": "fields.priority.name",
+      "priority_map": {
+        "p0": ["Blocker", "Highest"],
+        "p1": ["Critical", "High"],
+        "p2": ["Major", "Medium"]
+      }
+    },
+
+    "例3_跑一条命令": {
+      "_说明": "万能兜底。任何系统都能包一层：写个脚本，让它往 stdout 打印 JSON 就行。MySQL/PostgreSQL 也走这个（脚本里用 mysql -e 或 psql -c，加 --batch 输出）。",
+      "transport": "command",
+      "command": "python3 /opt/tickets/query_my_tickets.py",
+      "timeout": 15,
+      "shape": "list",
+      "list_path": "",
+      "priority_field": "priority",
+      "priority_map": {
+        "p0": ["P0", "紧急"],
+        "p1": ["P1", "高"],
+        "p2": ["P2", "中"]
+      }
+    },
+
+    "例4_读本地文件": {
+      "_说明": "系统能定时导出文件，或者你本来就有一份落盘的清单。支持 .json 和 .csv。",
+      "transport": "file",
+      "path": "/Users/you/Work/tickets/today.json",
+      "shape": "list",
+      "list_path": "data.items",
+      "priority_field": "priority",
+      "priority_map": {
+        "p0": ["P0"],
+        "p1": ["P1"],
+        "p2": ["P2"]
+      }
+    },
+
+    "例5_查SQLite库": {
+      "_说明": "只读打开，绝不会改动你的工单库。SQL 的结果要「一行一个工单」并包含优先级列，然后按 list 模式分组。",
+      "transport": "sql",
+      "path": "/Users/you/Work/tickets/tickets.db",
+      "query": "SELECT priority, status FROM tickets WHERE assignee='me' AND status != 'closed'",
+      "shape": "list",
+      "priority_field": "priority",
+      "priority_map": {
+        "p0": ["P0"],
+        "p1": ["P1"],
+        "p2": ["P2"]
+      }
+    }
+  }
+}

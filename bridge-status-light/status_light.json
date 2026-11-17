@@ -1,0 +1,83 @@
+{
+  "_说明": [
+    "涂鸦 CS 技术工单「待我处理」队列 -> T5 状态灯。",
+    "这份配置已对着真实系统跑通：275 条工单，p0=0 p1=1 p2=274。",
+    "Cookie 不写进文件，走环境变量 CS_COOKIE —— 避免误提交、也方便过期时只换环境变量。",
+    "",
+    "灯的含义（rule 见下面 source.rules）：",
+    "  p0 红 = 有工单在等你首次响应（状态=待处理）",
+    "  p1 黄 = 你手上正在处理（状态=处理中）",
+    "  p2 绿 = 都在等客户，不占用你的注意力（不参与灯的颜色判断，只作为数字显示）",
+    "",
+    "为什么不用优先级（SS/S1/S2/S3/S4）当判据：实测队列里 275 条有 211 条优先级是空的，",
+    "SS/S1/S2 一条都没有。用优先级驱动的灯会永远是绿的，永远不会亮 —— 那就是个摆设。"
+  ],
+
+  "source": {
+    "transport": "tuyacs",
+    "url": "https://cs.tuya-inc.com:7799",
+    "cookie": "${CS_COOKIE}",
+
+    "view_code": "techTicketCSMyPending",
+    "platform": 8,
+    "page_size": 500,
+
+    "_超时": [
+      "budget 是**整次取数的总预算**，timeout 是**单次尝试**的上限、retries 是重试次数。",
+      "三个都要看：timeout=30 × retries=4 的最坏情况是 120 秒，而板子拉 /tickets 的",
+      "socket 超时只有 8 秒（固件 SL_HTTP_TIMEOUT_MS）—— 板子会先掐线，bridge 再写响应",
+      "就是一堆 Broken pipe。所以总预算必须明显小于 8 秒。",
+      "实测：上游平时 1~3 秒，偶尔飙到 30 秒以上。budget=6 意味着最坏 6 秒就认输",
+      "返回 502，板子干净地显示 OFFLINE，下一轮再来。",
+      "改板子的 SL_HTTP_TIMEOUT_MS 的话，这里跟着改，留 2 秒余量。"
+    ],
+    "budget": 6,
+    "timeout": 30,
+    "retries": 4,
+    "tls_verify": true,
+
+    "shape": "rules",
+    "list_path": "result.datas",
+    "count_field": "result.total_count",
+
+    "rules": {
+      "p0": [
+        [
+          { "field": "state.value", "in": ["Pending"] }
+        ]
+      ],
+      "p1": [
+        [
+          { "field": "state.value", "in": ["Processing"] }
+        ]
+      ]
+    },
+    "else_bucket": "p2",
+
+    "_可选规则_客户回复了就催我": {
+      "怎么用": "把下面 rule 那一项追加到 rules.p0 数组里，客户回复过话的工单也会闪红。",
+      "警告": [
+        "这条规则是「粘」的：last_requester_reply_at 只记录客户最后一次回话的时间，",
+        "你回复之后它不会变。所以在窗口期内，即使你已经处理完了，灯还会为你亮着。",
+        "窗口别开太大。12~24 小时比较合适，既能接住新回复，又不会赖着不走。",
+        "实测：48 小时窗口 -> 0 条；放宽到 7 天 -> 1 条。"
+      ],
+      "rule": [
+        { "field": "state.value", "in": ["PendingUserFeedback", "PendingUserConfirm"] },
+        { "field": "last_requester_reply_at.value", "age_hours_lt": 24 }
+      ]
+    }
+  },
+
+  "alert_buckets": ["p0", "p1"],
+
+  "announce": {
+    "urgent": "注意，有 {p0} 个工单在等你回复，请立刻处理",
+    "celebrate": "手头的工单都清完了，干得漂亮",
+    "warn": "",
+    "source_lost": "工单系统连不上了，请检查",
+    "_warn说明": "故意留空 —— p1 只变色不发声。一天响几十次的话，同事第三天就把板子关了。"
+  },
+
+  "poll_interval": 120
+}
